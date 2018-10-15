@@ -178,6 +178,8 @@ function post(body, callback) {
 
 function buildRequest(endpoint, body) {
     var endpointParts = endpoint.match(/^([^\.]+)\.?([^\.]*)\.?([^\.]*)\.amazonaws\.com$/);
+    console.log('endpoint', endpoint);
+    console.log('endpointParts', endpointParts);
     var region = endpointParts[2];
     var service = endpointParts[3];
     var datetime = (new Date()).toISOString().replace(/[:\-]|\.\d{3}/g, '');
