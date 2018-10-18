@@ -81,7 +81,7 @@ const buildRequest = (endpoint, body) => {
   return request;
 };
 
-module.exports = (body, callback) => {
+module.exports = (body) => {
   const requestParams = buildRequest(endpoint, body);
   return new Promise((resolve, reject) => {
     const request = https
