@@ -258,6 +258,7 @@ class ServerlessEsLogsPlugin {
     const name = `${this.serverless.service.service}-${this.options.stage}-es-logs-plugin`;
     fs.ensureDirSync(dirPath);
     fs.copySync(path.resolve(__dirname, '../templates/code/logsToEs.js'), filePath);
+    fs.copySync(path.resolve(__dirname, '../templates/code/request.js'), filePath);
     this.serverless.service.functions[this.logProcesserName] = {
       description: 'Serverless ES Logs Plugin',
       environment: {
