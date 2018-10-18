@@ -1,17 +1,18 @@
-// v1.1.2
 const https = require('https');
 const zlib = require('zlib');
 const crypto = require('crypto');
-const utils = -require('util');
+const utils = require('util');
+const request = require('./request');
 
 const endpoint = process.env.ES_ENDPOINT;
 const indexPrefix = process.env.INDEX_PREFIX;
 
-const gunZip = utils.promisify(zlib.gunZip);
+const gunZip = utils.promisify(zlib.gunzip);
 const toUTF8 = data => data.toString('utf8');
 const toJSON = data => JSON.parse(data);
 const toJSONString = data => JSON.stringify(data, null, 2);
-const sendToElastic = utils.promisify(post);
+
+const tap = fn => val => (fn(val), val);
 
 exports.handler = async (input, context) => {
   // decode input from base64
@@ -21,9 +22,16 @@ exports.handler = async (input, context) => {
     .then(toUTF8)
     .then(toJSON)
     .then(transform)
-    .then(sendToElastic)
-    .then(success => console.log('Response:', toJSONString(success)))
-    .catch(err => console.log('Error:', toJSONString(err)));
+    .then(tap(console.log.bind(console, 'After transform')))
+    .then(request)
+    .then(success => {
+      console.log('Response:', toJSONString(success));
+      context.succeed('Success');
+    })
+    .catch(err => {
+      console.log('Error:', toJSONString(err));
+      context.fail(err);
+    });
 };
 
 // once decoded, the CloudWatch invocation event looks like this:
@@ -85,35 +93,39 @@ function transform(payload) {
 
       return [JSON.stringify(action), JSON.stringify(source)].join('\n');
     })
+    .concat('\n')
     .join('\n');
 }
 
 function buildSource({ message, extractedFields }) {
   if (extractedFields) {
-    var source = {};
+    return Object.keys(extractedFields).reduce((acc, key) => {
+      const value = extractedFields[key];
 
-    for (var key in extractedFields) {
-      if (extractedFields.hasOwnProperty(key) && extractedFields[key]) {
-        var value = extractedFields[key];
-
-        if (isNumeric(value)) {
-          source[key] = 1 * value;
-          continue;
-        }
-
-        jsonSubString = extractJson(value);
-        if (jsonSubString !== null) {
-          source['$' + key] = JSON.parse(jsonSubString);
-        }
-
-        source[key] =
-          key === 'apigw_request_id' ? value.slice(1, value.length - 1) : value;
+      if (key === 'apigw_request_id') {
+        return Object.assign({}, acc, {
+          [key]: value.slice(1, value.length - 1),
+        });
       }
-    }
-    return source;
+
+      if (isNumeric(value)) {
+        return Object.assign({}, acc, {
+          [key]: 1 * value,
+        });
+      }
+
+      const jsonValue = extractJson(value);
+      if (jsonValue !== null) {
+        return Object.assign({}, acc, {
+          [key]: toJSON(jsonValue),
+        });
+      }
+
+      return Object.assign({}, acc, { [key]: value });
+    }, {});
   }
 
-  jsonSubString = extractJson(message);
+  const jsonSubString = extractJson(message);
   if (jsonSubString !== null) {
     return JSON.parse(jsonSubString);
   }
@@ -141,132 +153,4 @@ function isNumeric(n) {
   return !isNaN(parseFloat(n)) && isFinite(n);
 }
 
-function post(body, callback) {
-  const requestParams = buildRequest(endpoint, body);
-  const request = https
-    .request(requestParams, response => {
-      let responseBody = '';
 
-      response.on('data', chunk => {
-        responseBody += chunk;
-      });
-
-      response.on('end', () => {
-        const info = JSON.parse(responseBody);
-
-        if (response.statusCode !== 200 || info.errors === true) {
-          const error = new Error('Request failed');
-          error.statusCode = response.statusCode;
-          error.responseBody = responseBody;
-
-          return callback(error);
-        }
-
-        const failedItems = info.items.filter(x => x.index.status >= 300);
-        const success = {
-          attemptedItems: info.items.length,
-          successfulItems: info.items.length - failedItems.length,
-          failedItems: failedItems.length,
-        };
-
-        callback(null, {
-          success,
-          statusCode: response.statusCode,
-          failedItems,
-        });
-      });
-    })
-    .on('error', callback);
-
-  return request.end(requestParams.body);
-}
-
-function buildRequest(endpoint, body) {
-  var endpointParts = endpoint.match(
-    /^([^\.]+)\.?([^\.]*)\.?([^\.]*)\.amazonaws\.com$/
-  );
-  console.log('endpoint', endpoint);
-  console.log('endpointParts', endpointParts);
-  var region = endpointParts[2];
-  var service = endpointParts[3];
-  var datetime = new Date().toISOString().replace(/[:\-]|\.\d{3}/g, '');
-  var date = datetime.substr(0, 8);
-  var kDate = hmac('AWS4' + process.env.AWS_SECRET_ACCESS_KEY, date);
-  var kRegion = hmac(kDate, region);
-  var kService = hmac(kRegion, service);
-  var kSigning = hmac(kService, 'aws4_request');
-
-  var request = {
-    host: endpoint,
-    method: 'POST',
-    path: '/_bulk',
-    body: body,
-    headers: {
-      'Content-Type': 'application/json',
-      Host: endpoint,
-      'Content-Length': Buffer.byteLength(body),
-      'X-Amz-Security-Token': process.env.AWS_SESSION_TOKEN,
-      'X-Amz-Date': datetime,
-    },
-  };
-
-  var canonicalHeaders = Object.keys(request.headers)
-    .sort(function(a, b) {
-      return a.toLowerCase() < b.toLowerCase() ? -1 : 1;
-    })
-    .map(function(k) {
-      return k.toLowerCase() + ':' + request.headers[k];
-    })
-    .join('\n');
-
-  var signedHeaders = Object.keys(request.headers)
-    .map(function(k) {
-      return k.toLowerCase();
-    })
-    .sort()
-    .join(';');
-
-  var canonicalString = [
-    request.method,
-    request.path,
-    '',
-    canonicalHeaders,
-    '',
-    signedHeaders,
-    hash(request.body, 'hex'),
-  ].join('\n');
-
-  var credentialString = [date, region, service, 'aws4_request'].join('/');
-
-  var stringToSign = [
-    'AWS4-HMAC-SHA256',
-    datetime,
-    credentialString,
-    hash(canonicalString, 'hex'),
-  ].join('\n');
-
-  request.headers.Authorization = [
-    'AWS4-HMAC-SHA256 Credential=' +
-      process.env.AWS_ACCESS_KEY_ID +
-      '/' +
-      credentialString,
-    'SignedHeaders=' + signedHeaders,
-    'Signature=' + hmac(kSigning, stringToSign, 'hex'),
-  ].join(', ');
-
-  return request;
-}
-
-function hmac(key, str, encoding) {
-  return crypto
-    .createHmac('sha256', key)
-    .update(str, 'utf8')
-    .digest(encoding);
-}
-
-function hash(str, encoding) {
-  return crypto
-    .createHash('sha256')
-    .update(str, 'utf8')
-    .digest(encoding);
-}
