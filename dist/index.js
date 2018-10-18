@@ -224,6 +224,7 @@ class ServerlessEsLogsPlugin {
         fs_extra_1.default.ensureDirSync(dirPath);
         fs_extra_1.default.copySync(path_1.default.resolve(__dirname, '../templates/code/logsToEs.js'), path_1.default.join(dirPath, 'index.js'));
         fs_extra_1.default.copySync(path_1.default.resolve(__dirname, '../templates/code/request.js'), path_1.default.join(dirPath, 'request.js'));
+        fs_extra_1.default.copySync(path_1.default.resolve(__dirname, '../templates/code/transform.js'), path_1.default.join(dirPath, 'transform.js'));
         this.serverless.service.functions[this.logProcesserName] = {
             description: 'Serverless ES Logs Plugin',
             environment: {
