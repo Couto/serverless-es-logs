@@ -219,12 +219,11 @@ class ServerlessEsLogsPlugin {
     addLogProcesser() {
         const { index, endpoint } = this.custom.esLogs;
         const dirPath = path_1.default.join(this.serverless.config.servicePath, this.logProcesserDir);
-        const filePath = path_1.default.join(dirPath, 'index.js');
         const handler = `${this.logProcesserDir}/index.handler`;
         const name = `${this.serverless.service.service}-${this.options.stage}-es-logs-plugin`;
         fs_extra_1.default.ensureDirSync(dirPath);
-        fs_extra_1.default.copySync(path_1.default.resolve(__dirname, '../templates/code/logsToEs.js'), filePath);
-        fs_extra_1.default.copySync(path_1.default.resolve(__dirname, '../templates/code/request.js'), filePath);
+        fs_extra_1.default.copySync(path_1.default.resolve(__dirname, '../templates/code/logsToEs.js'), path_1.default.join(dirPath, 'index.js'));
+        fs_extra_1.default.copySync(path_1.default.resolve(__dirname, '../templates/code/request.js'), path_1.default.join(dirPath, 'request.js'));
         this.serverless.service.functions[this.logProcesserName] = {
             description: 'Serverless ES Logs Plugin',
             environment: {
