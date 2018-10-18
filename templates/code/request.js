@@ -1,3 +1,8 @@
+const crypto = require('crypto');
+const https = require('https');
+
+const endpoint = process.env.ES_ENDPOINT;
+
 const hmac = (key, str, encoding) =>
   crypto
     .createHmac('sha256', key)
@@ -117,4 +122,4 @@ module.exports = (body, callback) => {
 
     return request.end(requestParams.body);
   });
-};
+}
