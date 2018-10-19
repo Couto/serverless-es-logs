@@ -1,4 +1,3 @@
-
 const indexPrefix = process.env.INDEX_PREFIX;
 
 // once decoded, the CloudWatch invocation event looks like this:
@@ -37,7 +36,8 @@ const tryParseJSON = data => {
   }
 };
 
-const formatAction = (timestamp, requestId, event) => {
+const formatAction = logEvent => {
+  const timestamp = new Date(logEvent.timestamp);
   // index name format: cwl-YYYY.MM.DD
   const indexName = [
     indexPrefix + '-' + timestamp.getUTCFullYear(), // year
@@ -48,37 +48,27 @@ const formatAction = (timestamp, requestId, event) => {
   const action = { index: {} };
   action.index._index = indexName;
   action.index._type = 'serverless-es-logs';
-  action.index._id = requestId;
+  action.index._id = logEvent.id;
 
   return action;
 };
 
-const formatMessage = (payload, timestamp, requestId, event) => {
+const formatMessage = (payload, logEvent) => {
+  const [date, requestId, event] = logEvent.message.split('\t', 3);
+  const timestamp = new Date(date);
   const fields = tryParseJSON(event);
   const defaults = {
-    '@id': requestId,
+    '@id': payload.id,
     '@timestamp': timestamp,
     '@owner': payload.owner,
     '@log_group': payload.logGroup,
     '@log_stream': payload.logStream,
+    '@message': fields ? fields.message || fields.msg : event,
+    level: fields.level || 'debug',
+    requestId: requestId,
   };
 
-  return fields
-    ? Object.assign(
-        {
-          level: fields.level || 'debug',
-          message: fields.message || fields.msg || event,
-          fields,
-        },
-        defaults
-      )
-    : Object.assign(
-        {
-          level: 'debug',
-          message: event,
-        },
-        defaults
-      );
+  return fields ? Object.assign({ fields }, defaults) : defaults;
 };
 
 module.exports = payload => {
@@ -87,15 +77,12 @@ module.exports = payload => {
   }
 
   return payload.logEvents
-    .map(logEvent => {
-      const [date, requestId, event] = logEvent.message.split('\t', 3);
-      const timestamp = new Date(date);
-
-      return [
-        JSON.stringify(formatAction(timestamp, requestId, event)),
-        JSON.stringify(formatMessage(payload, timestamp, requestId, event)),
-      ].join('\n');
-    })
+    .map(logEvent =>
+      [
+        JSON.stringify(formatAction(logEvent)),
+        JSON.stringify(formatMessage(payload, logEvent)),
+      ].join('\n')
+    )
     .join('\n')
     .concat('\n');
 };
