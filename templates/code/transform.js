@@ -64,7 +64,7 @@ const formatMessage = (payload, logEvent) => {
     '@log_group': payload.logGroup,
     '@log_stream': payload.logStream,
     '@message': fields ? fields.message || fields.msg : event,
-    level: fields.level || 'debug',
+    level: fields ? fields.level || 'debug' : 'debug',
     requestId: requestId,
   };
 
